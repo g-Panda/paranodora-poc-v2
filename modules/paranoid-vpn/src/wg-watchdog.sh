@@ -6,8 +6,9 @@
 
 set -euo pipefail
 
-ZONE_NAME="wireguard-only"
-LOG_FILE="/var/log/paranoid-vpn.log"
+ZONE_NAME="${PARANOID_VPN_ZONE_NAME:-wireguard-only}"
+LOG_FILE="${PARANOID_VPN_LOG_FILE:-/var/log/paranoid-vpn.log}"
+WATCHDOG_INTERVAL_SECONDS="${PARANOID_VPN_WATCHDOG_INTERVAL_SECONDS:-5}"
 
 log() {
     echo "[$(date '+%Y-%m-%d %H:%M:%S')] [WATCHDOG] $1" >> "$LOG_FILE"
@@ -64,14 +65,22 @@ enforce_tunnel_route() {
     fi
 }
 
-# Main loop.
-while true; do
+run_once() {
     if check_tunnel; then
         enforce_tunnel_route
     else
         # The tunnel is down.
         trigger_killswitch
     fi
+}
 
-    sleep 5
-done
+main() {
+    while true; do
+        run_once
+        sleep "$WATCHDOG_INTERVAL_SECONDS"
+    done
+}
+
+if [ "${PARANOID_VPN_WATCHDOG_SOURCE_ONLY:-0}" != "1" ]; then
+    main
+fi

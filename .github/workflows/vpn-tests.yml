@@ -1,0 +1,39 @@
+name: VPN Tests
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  paranoid-vpn:
+    name: Paranoid VPN
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v6
+
+      - name: Install test tools
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y shellcheck
+
+      - name: Check shell syntax
+        shell: bash
+        run: |
+          while IFS= read -r script; do
+            bash -n "$script"
+          done < <(find . -name '*.sh' -type f | sort)
+
+      - name: Run ShellCheck
+        run: |
+          shellcheck \
+            paranoid-vpn.sh \
+            wg-watchdog.sh \
+            modules/paranoid-vpn/src/paranoid-vpn.sh \
+            modules/paranoid-vpn/src/wg-watchdog.sh \
+            modules/paranoid-vpn/test/run-unit.sh
+
+      - name: Run VPN unit tests
+        run: modules/paranoid-vpn/test/run-unit.sh

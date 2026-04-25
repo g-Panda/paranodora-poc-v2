@@ -1,4 +1,22 @@
-# VM Integration Tests
+# VPN Tests
+
+## CI Unit Suite
+
+The fast CI suite validates the `paranoid-vpn` setup, restore, watchdog, and
+root wrapper behavior with mocked system commands. It does not require root,
+WireGuard, Firewalld, NetworkManager, libvirt, or a real VPN config.
+
+From the repository root:
+
+```bash
+modules/paranoid-vpn/test/run-unit.sh
+```
+
+GitHub Actions runs this suite in `.github/workflows/vpn-tests.yml` on pushes,
+pull requests, and manual dispatches. The workflow also runs Bash syntax checks
+and ShellCheck on the CI-safe VPN scripts.
+
+## VM Integration Tests
 
 This directory contains the integration suite for the `paranoid-vpn` module. The
 self-provisioning runner creates a disposable Fedora Cloud VM with libvirt,

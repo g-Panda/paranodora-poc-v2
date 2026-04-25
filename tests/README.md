@@ -1,10 +1,10 @@
 # VM Integration Tests
 
-This directory contains the first-pass integration suite for `paranoid-vpn`.
-It drives an already-running disposable VM over SSH, copies the project scripts,
-runs the setup against an existing VM-side WireGuard config, checks tunnel and
-firewall behavior, scans the VM from the host with `nmap`, then brings `wg0`
-down as the final destructive test.
+This directory contains the integration suite for `paranoid-vpn`. The
+self-provisioning runner creates a disposable Fedora Cloud VM with libvirt,
+copies in a local WireGuard config, runs the existing SSH-driven suite, saves a
+root-level report, and destroys the VM afterward. The lower-level runner can
+still be used directly against an already-running disposable VM.
 
 ## Safety model
 
@@ -27,13 +27,23 @@ private or host-only VM network that survives default-route changes.
 Install these tools on the machine running the tests:
 
 - `bash`
+- `curl`
 - `ssh`
 - `scp`
+- `ssh-keygen`
+- `virsh`
+- `virt-install`
+- `qemu-img`
+- `cloud-localds` or `genisoimage` or `mkisofs`
 - `nmap`
 - `timeout`
 - `awk`
 - `sed`
 - `grep`
+
+For the independent runner, libvirt/VMM must already be installed and usable by
+the current user. The runner checks this and reports missing host setup, but it
+does not install host virtualization packages.
 
 ## VM requirements
 
@@ -92,7 +102,44 @@ fails. Leave it unset for a full paranoid-mode lockdown run.
 Set `RESTORE_AFTER_TEST=1` to restore the VM after the final tunnel-down checks
 while the suite still has its established SSH control connection.
 
-## Run
+## Run: Independent Disposable VM
+
+From the repository root:
+
+```bash
+TEST_WG_CONF=/secure/wg0.conf tests/run-independent-vm-integration.sh
+```
+
+`TEST_WG_CONF` must point to a real, untracked WireGuard config with a full
+tunnel route such as `AllowedIPs = 0.0.0.0/0, ::/0`. The config is copied into
+the VM as `/etc/wireguard/wg0.conf`; its contents and path are not written to
+the generated report.
+
+Optional independent-runner settings:
+
+```bash
+export FEDORA_RELEASE=43
+export FEDORA_CLOUD_IMAGE_URL=https://example.invalid/Fedora-Cloud-Base.qcow2
+export LIBVIRT_URI=qemu:///system
+export LIBVIRT_NETWORK=default
+export VM_MEMORY_MB=2048
+export VM_CPUS=2
+export VM_DISK_SIZE=20G
+```
+
+The runner caches the Fedora base image under `tests/vm-cache/`, writes detailed
+artifacts under `tests/artifacts/independent-<timestamp>/`, and writes a
+timestamped `vm-integration-report-<timestamp>.md` in the repository root. It
+always destroys and undefines the disposable VM and removes generated disks,
+seed ISOs, and SSH keys after collecting artifacts.
+
+To validate only host prerequisites and report generation:
+
+```bash
+TEST_WG_CONF=/secure/wg0.conf tests/run-independent-vm-integration.sh --preflight-only
+```
+
+## Run: Existing VM
 
 From the repository root:
 

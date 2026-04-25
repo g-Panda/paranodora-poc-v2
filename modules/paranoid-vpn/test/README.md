@@ -1,9 +1,9 @@
 # VM Integration Tests
 
-This directory contains the integration suite for `paranoid-vpn`. The
+This directory contains the integration suite for the `paranoid-vpn` module. The
 self-provisioning runner creates a disposable Fedora Cloud VM with libvirt,
 copies in a local WireGuard config, runs the existing SSH-driven suite, saves a
-root-level report, and destroys the VM afterward. The lower-level runner can
+module artifact report, and destroys the VM afterward. The lower-level runner can
 still be used directly against an already-running disposable VM.
 
 ## Safety model
@@ -84,7 +84,7 @@ export NMAP_PORTS=1-1024,51820,22,53
 export SKIP_NMAP=1
 export TEST_ALLOW_SSH=1
 export RESTORE_AFTER_TEST=1
-export TEST_ARTIFACT_DIR=tests/artifacts/manual-run
+export TEST_ARTIFACT_DIR=modules/paranoid-vpn/test/artifacts/manual-run
 ```
 
 `VPN_EXPECTED_EXIT_IP` is the public IPv4 address the VM should expose after the
@@ -107,7 +107,7 @@ while the suite still has its established SSH control connection.
 From the repository root:
 
 ```bash
-TEST_WG_CONF=/secure/wg0.conf tests/run-independent-vm-integration.sh
+TEST_WG_CONF=/secure/wg0.conf modules/paranoid-vpn/test/run-independent-vm-integration.sh
 ```
 
 `TEST_WG_CONF` must point to a real, untracked WireGuard config with a full
@@ -127,16 +127,17 @@ export VM_CPUS=2
 export VM_DISK_SIZE=20G
 ```
 
-The runner caches the Fedora base image under `tests/vm-cache/`, writes detailed
-artifacts under `tests/artifacts/independent-<timestamp>/`, and writes a
-timestamped `vm-integration-report-<timestamp>.md` in the repository root. It
-always destroys and undefines the disposable VM and removes generated disks,
-seed ISOs, and SSH keys after collecting artifacts.
+The runner caches the Fedora base image under
+`modules/paranoid-vpn/test/vm-cache/`, writes detailed artifacts under
+`modules/paranoid-vpn/test/artifacts/independent-<timestamp>/`, and writes the
+timestamped `vm-integration-report-<timestamp>.md` there by default. It always
+destroys and undefines the disposable VM and removes generated disks, seed ISOs,
+and SSH keys after collecting artifacts.
 
 To validate only host prerequisites and report generation:
 
 ```bash
-TEST_WG_CONF=/secure/wg0.conf tests/run-independent-vm-integration.sh --preflight-only
+TEST_WG_CONF=/secure/wg0.conf modules/paranoid-vpn/test/run-independent-vm-integration.sh --preflight-only
 ```
 
 ## Run: Existing VM
@@ -144,12 +145,13 @@ TEST_WG_CONF=/secure/wg0.conf tests/run-independent-vm-integration.sh --prefligh
 From the repository root:
 
 ```bash
-tests/run-vm-integration.sh
+modules/paranoid-vpn/test/run-vm-integration.sh
 ```
 
-The suite writes logs and command output under `tests/artifacts/<timestamp>/` by
-default. Artifacts include pre/post public IP checks, DNS output, Firewalld
-state, WireGuard status, journal excerpts, and `nmap` results.
+The suite writes logs and command output under
+`modules/paranoid-vpn/test/artifacts/<timestamp>/` by default. Artifacts include
+pre/post public IP checks, DNS output, Firewalld state, WireGuard status,
+journal excerpts, and `nmap` results.
 
 ## What It Checks
 

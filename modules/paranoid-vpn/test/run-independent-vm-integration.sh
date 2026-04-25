@@ -3,16 +3,15 @@
 # Independent VM integration runner for paranoid-vpn.
 #
 # This wrapper provisions a disposable Fedora Cloud VM with libvirt, injects a
-# local WireGuard config, runs the existing VM integration suite, writes a root
-# report, and then destroys the VM.
+# local WireGuard config, runs the existing VM integration suite, writes a
+# module artifact report, and then destroys the VM.
 ###############################################################################
 
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
 
-# shellcheck source=tests/lib/logging.sh
+# shellcheck source=modules/paranoid-vpn/test/lib/logging.sh
 source "$SCRIPT_DIR/lib/logging.sh"
 
 TIMESTAMP="$(date +%Y%m%d_%H%M%S)"
@@ -35,7 +34,7 @@ VM_NAME="${VM_NAME:-paranoid-vpn-itest-${TIMESTAMP}-$$}"
 ARTIFACT_DIR="${TEST_ARTIFACT_DIR:-$SCRIPT_DIR/artifacts/independent-$TIMESTAMP}"
 CACHE_DIR="${VM_CACHE_DIR:-$SCRIPT_DIR/vm-cache}"
 WORK_DIR="${VM_WORK_DIR:-$ARTIFACT_DIR/vm-work}"
-REPORT_PATH="${VM_INTEGRATION_REPORT:-$REPO_ROOT/vm-integration-report-$TIMESTAMP.md}"
+REPORT_PATH="${VM_INTEGRATION_REPORT:-$ARTIFACT_DIR/vm-integration-report-$TIMESTAMP.md}"
 RUNNER_LOG="$ARTIFACT_DIR/independent-runner.log"
 SUITE_LOG="$ARTIFACT_DIR/vm-integration-suite.log"
 HOST_TOOLS_FILE="$ARTIFACT_DIR/host-tools.txt"
@@ -80,8 +79,8 @@ Optional environment:
   VM_MEMORY_MB              VM memory. Default: 2048
   VM_CPUS                   VM vCPU count. Default: 2
   VM_DISK_SIZE              Throwaway overlay disk size. Default: 20G
-  VM_CACHE_DIR              Fedora image cache. Default: tests/vm-cache
-  TEST_ARTIFACT_DIR         Artifact directory. Default: tests/artifacts/independent-<timestamp>
+  VM_CACHE_DIR              Fedora image cache. Default: module test vm-cache
+  TEST_ARTIFACT_DIR         Artifact directory. Default: module test artifacts/independent-<timestamp>
   VM_INTEGRATION_REPORT     Report path. Default: vm-integration-report-<timestamp>.md
 
 Existing suite environment such as VPN_EXPECTED_EXIT_IP, PUBLIC_IP_URL,

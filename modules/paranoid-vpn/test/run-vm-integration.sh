@@ -9,17 +9,18 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
-REPO_ROOT="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
+MODULE_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
+MODULE_SRC_DIR="$MODULE_DIR/src"
 
-# shellcheck source=tests/lib/logging.sh
+# shellcheck source=modules/paranoid-vpn/test/lib/logging.sh
 source "$SCRIPT_DIR/lib/logging.sh"
-# shellcheck source=tests/lib/assertions.sh
+# shellcheck source=modules/paranoid-vpn/test/lib/assertions.sh
 source "$SCRIPT_DIR/lib/assertions.sh"
-# shellcheck source=tests/lib/retry.sh
+# shellcheck source=modules/paranoid-vpn/test/lib/retry.sh
 source "$SCRIPT_DIR/lib/retry.sh"
-# shellcheck source=tests/lib/cleanup.sh
+# shellcheck source=modules/paranoid-vpn/test/lib/cleanup.sh
 source "$SCRIPT_DIR/lib/cleanup.sh"
-# shellcheck source=tests/lib/remote.sh
+# shellcheck source=modules/paranoid-vpn/test/lib/remote.sh
 source "$SCRIPT_DIR/lib/remote.sh"
 
 VM_PORT="${VM_PORT:-22}"
@@ -56,7 +57,7 @@ Optional environment:
   SKIP_NMAP               Set to 1 to skip host-side nmap scans. Default: 0
   TEST_ALLOW_SSH          Set to 1 to run setup with --allow-ssh. Default: 0
   RESTORE_AFTER_TEST       Set to 1 to restore the VM after final test. Default: 0
-  TEST_ARTIFACT_DIR       Local output directory. Default: tests/artifacts/<timestamp>
+  TEST_ARTIFACT_DIR       Local output directory. Default: module test artifacts/<timestamp>
 
 The final test is destructive: it runs 'sudo wg-quick down wg0' on the VM.
 EOF
@@ -209,10 +210,9 @@ cleanup_remote_workdir() {
 copy_project_to_vm() {
     log_section "Copy project files"
 
-    local file
-    for file in paranoid-vpn.sh wg-watchdog.sh README.md; do
-        remote_scp_to "$REPO_ROOT/$file" "$REMOTE_WORKDIR"
-    done
+    remote_scp_to "$MODULE_SRC_DIR/paranoid-vpn.sh" "$REMOTE_WORKDIR"
+    remote_scp_to "$MODULE_SRC_DIR/wg-watchdog.sh" "$REMOTE_WORKDIR"
+    remote_scp_to "$MODULE_DIR/README.md" "$REMOTE_WORKDIR"
 
     remote_check "remote scripts are executable" "chmod 755 $(shell_quote "$REMOTE_WORKDIR")/paranoid-vpn.sh $(shell_quote "$REMOTE_WORKDIR")/wg-watchdog.sh"
 }

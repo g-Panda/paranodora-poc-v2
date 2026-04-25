@@ -4,6 +4,8 @@
 # Działa w pętli, sprawdzając stan tunelu co 5 sekund.
 ###############################################################################
 
+set -euo pipefail
+
 ZONE_NAME="wireguard-only"
 LOG_FILE="/var/log/paranoid-vpn.log"
 
@@ -18,8 +20,7 @@ check_tunnel() {
     fi
 
     # Sprawdź czy są aktywne ręce (handshakes)
-    HANDSHAKES=$(wg show wg0 latest-handshakes | awk '{print $2}')
-    if [ -z "$HANDSHAKES" ] || [ "$HANDSHAKES" == "0" ]; then
+    if ! wg show wg0 latest-handshakes | awk '{if ($2 > 0) found=1} END{exit(found?0:1)}'; then
         # Sprawdź czy jest jakieś połączenie w ciągu ostatnich 30 sekund
         # (uproszczenie: jeśli handshakes jest 0, to nie ma połączenia)
         return 1

@@ -1,0 +1,12 @@
+[Unit]
+Description=Start Paranoid VPN on Boot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=/opt/paranoid-vpn/paranoid-vpn.sh
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

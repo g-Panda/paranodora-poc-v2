@@ -5,7 +5,7 @@
 # Wymagania: Root, Firewalld, NetworkManager, WireGuard-tools
 ###############################################################################
 
-set -e # Zatrzymaj się przy pierwszym błędzie
+set -euo pipefail # Zatrzymaj się przy pierwszym błędzie i błędach zmiennych
 
 # --- KONFIGURACJA ---
 BACKUP_DIR="/var/lib/paranoid-vpn/backups"
@@ -42,8 +42,24 @@ check_root() {
     fi
 }
 
+check_dependencies() {
+    local deps=("firewall-cmd" "wg-quick" "wg" "ip" "systemctl" "sysctl" "awk" "grep")
+    local missing=()
+
+    for dep in "${deps[@]}"; do
+        if ! command -v "$dep" >/dev/null 2>&1; then
+            missing+=("$dep")
+        fi
+    done
+
+    if (( ${#missing[@]} > 0 )); then
+        error_exit "Brak wymaganych narzędzi: ${missing[*]}"
+    fi
+}
+
 backup_config() {
-    local timestamp=$(date +%Y%m%d_%H%M%S)
+    local timestamp
+    timestamp=$(date +%Y%m%d_%H%M%S)
     mkdir -p "$BACKUP_DIR/$timestamp"
 
     log "Tworzenie backupu konfiguracji..."
@@ -91,6 +107,7 @@ setup_wireguard() {
 
 setup_routing() {
     log "Faza 2: Konfiguracja routingu..."
+    local endpoint endpoint_host gateway gateway_dev
 
     # Wyłącz IPv6 (Paranoiczny tryb)
     sysctl -w net.ipv6.conf.all.disable_ipv6=1
@@ -101,6 +118,10 @@ setup_routing() {
     # Uwaga: To może chwilowo odciąć internet, dopóki wg0 nie będzie gotowy
     # Dlatego robimy to PO uruchomieniu wg0
 
+    # Pobierz fizyczną trasę domyślną zanim przełączymy default route.
+    gateway=$(ip -4 route show default 2>/dev/null | awk 'NR==1 {print $3}')
+    gateway_dev=$(ip -4 route show default 2>/dev/null | awk 'NR==1 {print $5}')
+
     # Dodaj trasę default przez wg0
     ip route del default 2>/dev/null || true
     ip route add default dev wg0
@@ -108,14 +129,23 @@ setup_routing() {
     # Ważne: Dodaj trasę do serwera WireGuard przez fizyczny interfejs
     # Aby to zrobić, musimy wiedzieć, gdzie jest endpoint.
     # Pobieramy endpoint z konfiguracji
-    ENDPOINT=$(grep -oP 'Endpoint\s*=\s*\K\S+' "$WG_CONF" | head -1)
-    if [ -n "$ENDPOINT" ]; then
-        GW_IP=$(ip route | grep default | awk '{print $3}')
-        if [ -n "$GW_IP" ]; then
-            ip route add "$ENDPOINT" via "$GW_IP"
-            log "Dodano trasę do endpointu WG: $ENDPOINT"
+    endpoint=$(awk -F'=' '/^[[:space:]]*Endpoint[[:space:]]*=/{gsub(/[[:space:]]/, "", $2); print $2; exit}' "$WG_CONF")
+    if [ -n "$endpoint" ]; then
+        # Obsługa endpointów IPv4/IPv6 z portem:
+        #  - 203.0.113.1:51820
+        #  - [2001:db8::1]:51820
+        if [[ "$endpoint" =~ ^\[.+\]:[0-9]+$ ]]; then
+            endpoint_host="${endpoint#[}"
+            endpoint_host="${endpoint_host%%]*}"
         else
-            log "Ostrzeżenie: Nie znaleziono domyślnej bramy dla trasy do endpointu."
+            endpoint_host="${endpoint%:*}"
+        fi
+
+        if [ -n "$gateway" ] && [ -n "$gateway_dev" ] && [ -n "$endpoint_host" ]; then
+            ip route replace "$endpoint_host" via "$gateway" dev "$gateway_dev" 2>/dev/null || true
+            log "Dodano trasę do endpointu WG: $endpoint_host przez $gateway ($gateway_dev)"
+        else
+            log "Ostrzeżenie: Nie znaleziono kompletnej trasy do endpointu (gateway/dev/host)."
         fi
     fi
 }
@@ -211,12 +241,8 @@ validate_setup() {
     fi
 
     # Sprawdź routing
-    DEFAULT_ROUTE=$(ip route | grep default | awk '{print $3}')
-    if [ "$DEFAULT_ROUTE" != "wg0" ]; then
-        # Sprawdź czy default jest przez wg0 (może być zapisane jako dev wg0)
-        if ! ip route | grep default | grep -q "dev wg0"; then
-            error_exit "Domyślna trasa nie wskazuje na wg0!"
-        fi
+    if ! ip route show default | grep -q "dev wg0"; then
+        error_exit "Domyślna trasa nie wskazuje na wg0!"
     fi
 
     # Test wycieku IP (symulacja)
@@ -229,14 +255,19 @@ validate_setup() {
 restore_config() {
     log "Przywracanie konfiguracji..."
     # Szukaj ostatniego backupu
-    LATEST_BACKUP=$(ls -t "$BACKUP_DIR" | head -1)
-    if [ -z "$LATEST_BACKUP" ]; then
+    local latest_backup
+    latest_backup=$(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -r | head -1)
+    if [ -z "$latest_backup" ]; then
         error_exit "Nie znaleziono backupów do przywrócenia."
     fi
 
     # Przywracanie firewall
     rm -rf /etc/firewalld/zones/*
-    cp -r "$BACKUP_DIR/$LATEST_BACKUP/zones/"* /etc/firewalld/zones/
+    if [ -d "$BACKUP_DIR/$latest_backup/zones" ]; then
+        cp -r "$BACKUP_DIR/$latest_backup/zones/." /etc/firewalld/zones/
+    else
+        log "Ostrzeżenie: Backup nie zawiera katalogu zones, pomijam przywracanie firewalld."
+    fi
 
     # Przywracanie routingu
     # To jest trudne, bo musimy wiedzieć co było.
@@ -266,7 +297,7 @@ show_status() {
     wg show wg0 2>/dev/null || echo "Nieaktywny"
     echo ""
     echo "Routing:"
-    ip route | grep default
+    ip route | grep default || echo "Brak domyślnej trasy"
     echo ""
     echo "Firewall Zone:"
     firewall-cmd --get-active-zones | grep -A 10 "$ZONE_NAME" || echo "Strefa nieaktywna"
@@ -277,6 +308,7 @@ show_status() {
 
 # --- GŁÓWNY BLOK ---
 check_root
+check_dependencies
 
 case $ACTION in
     setup)

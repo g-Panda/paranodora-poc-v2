@@ -8,9 +8,12 @@
 set -euo pipefail # Stop on the first error and unset variables
 
 # --- CONFIGURATION ---
+SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+INSTALL_DIR="/opt/paranoid-vpn"
 BACKUP_DIR="/var/lib/paranoid-vpn/backups"
 LOG_FILE="/var/log/paranoid-vpn.log"
-WG_CONF="/etc/wireguard/wg0.conf"
+SYSTEM_WG_CONF="/etc/wireguard/wg0.conf"
+WG_CONF="$SCRIPT_DIR/wg0.conf"
 ZONE_NAME="wireguard-only"
 ALLOW_SSH=false
 
@@ -18,8 +21,18 @@ ALLOW_SSH=false
 while [[ "$#" -gt 0 ]]; do
     case $1 in
         --allow-ssh) ALLOW_SSH=true; shift ;;
+        --wg-conf)
+            if [[ "${2:-}" == "" ]]; then
+                echo "Missing value for --wg-conf"
+                exit 1
+            fi
+            WG_CONF="$2"
+            shift 2
+            ;;
+        --wg-conf=*) WG_CONF="${1#*=}"; shift ;;
         --restore) ACTION="restore"; shift ;;
         --status) ACTION="status"; shift ;;
+        -h|--help) ACTION="help"; shift ;;
         *) echo "Unknown option: $1"; exit 1 ;;
     esac
 done
@@ -27,8 +40,41 @@ done
 ACTION=${ACTION:-"setup"}
 
 # --- HELPER FUNCTIONS ---
+show_usage() {
+    cat <<EOF
+Usage: sudo ./paranoid-vpn.sh [options]
+
+Options:
+  --allow-ssh          Keep SSH open in the lockdown firewall zone.
+  --wg-conf PATH      Use a WireGuard config from PATH instead of ./wg0.conf.
+  --status            Show tunnel, route, firewall, and watchdog status.
+  --restore           Restore the latest backup and remove installed services.
+  -h, --help          Show this help.
+
+Default setup expects wg0.conf next to paranoid-vpn.sh and installs everything
+needed for boot into /opt/paranoid-vpn and /etc/systemd/system.
+EOF
+}
+
+absolute_path() {
+    local path="$1"
+
+    if [[ "$path" = /* ]]; then
+        printf '%s\n' "$path"
+    else
+        printf '%s/%s\n' "$(pwd -P)" "$path"
+    fi
+}
+
 log() {
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" | tee -a "$LOG_FILE"
+    local line
+    line="[$(date '+%Y-%m-%d %H:%M:%S')] $1"
+
+    if [[ ${EUID:-$(id -u)} -eq 0 ]]; then
+        echo "$line" | tee -a "$LOG_FILE"
+    else
+        echo "$line"
+    fi
 }
 
 error_exit() {
@@ -43,7 +89,7 @@ check_root() {
 }
 
 check_dependencies() {
-    local deps=("firewall-cmd" "wg-quick" "wg" "ip" "systemctl" "sysctl" "awk" "grep")
+    local deps=("firewall-cmd" "wg-quick" "wg" "ip" "systemctl" "sysctl" "awk" "grep" "install")
     local missing=()
 
     for dep in "${deps[@]}"; do
@@ -55,6 +101,98 @@ check_dependencies() {
     if (( ${#missing[@]} > 0 )); then
         error_exit "Missing required tools: ${missing[*]}"
     fi
+}
+
+resolve_wireguard_config() {
+    WG_CONF="$(absolute_path "$WG_CONF")"
+
+    if [ -f "$WG_CONF" ]; then
+        return
+    fi
+
+    if [ "$WG_CONF" = "$SCRIPT_DIR/wg0.conf" ] && [ -f "$SYSTEM_WG_CONF" ]; then
+        log "No wg0.conf found next to the script; using existing $SYSTEM_WG_CONF."
+        WG_CONF="$SYSTEM_WG_CONF"
+        return
+    fi
+
+    error_exit "WireGuard config not found: $WG_CONF. Put wg0.conf next to paranoid-vpn.sh or pass --wg-conf PATH."
+}
+
+install_project_files() {
+    log "Installing project files into $INSTALL_DIR..."
+
+    if [ ! -f "$SCRIPT_DIR/paranoid-vpn.sh" ]; then
+        error_exit "Cannot find paranoid-vpn.sh in $SCRIPT_DIR."
+    fi
+
+    if [ ! -f "$SCRIPT_DIR/wg-watchdog.sh" ]; then
+        error_exit "Cannot find wg-watchdog.sh in $SCRIPT_DIR."
+    fi
+
+    mkdir -p "$INSTALL_DIR"
+
+    if [ "$SCRIPT_DIR/paranoid-vpn.sh" != "$INSTALL_DIR/paranoid-vpn.sh" ]; then
+        install -m 755 "$SCRIPT_DIR/paranoid-vpn.sh" "$INSTALL_DIR/paranoid-vpn.sh"
+    else
+        chmod 755 "$INSTALL_DIR/paranoid-vpn.sh"
+    fi
+
+    if [ "$SCRIPT_DIR/wg-watchdog.sh" != "$INSTALL_DIR/wg-watchdog.sh" ]; then
+        install -m 755 "$SCRIPT_DIR/wg-watchdog.sh" "$INSTALL_DIR/wg-watchdog.sh"
+    else
+        chmod 755 "$INSTALL_DIR/wg-watchdog.sh"
+    fi
+
+    if [ -f "$SCRIPT_DIR/README.md" ] && [ "$SCRIPT_DIR/README.md" != "$INSTALL_DIR/README.md" ]; then
+        install -m 644 "$SCRIPT_DIR/README.md" "$INSTALL_DIR/README.md"
+    fi
+}
+
+install_wireguard_config() {
+    log "Installing WireGuard config..."
+
+    mkdir -p "$(dirname "$SYSTEM_WG_CONF")"
+
+    if [ "$WG_CONF" != "$SYSTEM_WG_CONF" ]; then
+        install -m 600 "$WG_CONF" "$SYSTEM_WG_CONF"
+        log "WireGuard config installed from $WG_CONF to $SYSTEM_WG_CONF."
+    else
+        chmod 600 "$SYSTEM_WG_CONF"
+        log "Using existing WireGuard config at $SYSTEM_WG_CONF."
+    fi
+
+    WG_CONF="$SYSTEM_WG_CONF"
+}
+
+install_startup_service() {
+    local allow_ssh_arg=""
+
+    if [ "$ALLOW_SSH" = true ]; then
+        allow_ssh_arg=" --allow-ssh"
+    fi
+
+    log "Installing boot startup service..."
+
+    cat > /etc/systemd/system/wg-startup.service <<EOF
+[Unit]
+Description=Start Paranoid VPN on Boot
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+ExecStart=$INSTALL_DIR/paranoid-vpn.sh --wg-conf $SYSTEM_WG_CONF$allow_ssh_arg
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target
+EOF
+
+    systemctl daemon-reload
+    systemctl enable wg-startup.service
+
+    log "Boot startup service installed."
 }
 
 backup_config() {
@@ -76,8 +214,8 @@ backup_config() {
     ip addr show > "$BACKUP_DIR/$timestamp/addresses.txt"
 
     # Backup WireGuard
-    if [ -f "$WG_CONF" ]; then
-        cp "$WG_CONF" "$BACKUP_DIR/$timestamp/wg0.conf.bak"
+    if [ -f "$SYSTEM_WG_CONF" ]; then
+        cp "$SYSTEM_WG_CONF" "$BACKUP_DIR/$timestamp/wg0.conf.bak"
     fi
 
     log "Backup completed: $BACKUP_DIR/$timestamp"
@@ -90,11 +228,16 @@ setup_wireguard() {
 
     # Check whether the configuration file exists.
     if [ ! -f "$WG_CONF" ]; then
-        error_exit "Configuration file $WG_CONF does not exist. Create it manually or use the Proton tool."
+        error_exit "Configuration file $WG_CONF does not exist."
     fi
 
     # Make sure the keys are protected.
     chmod 600 "$WG_CONF"
+
+    if wg show wg0 >/dev/null 2>&1; then
+        log "wg0 tunnel is already active."
+        return
+    fi
 
     # Start the tunnel.
     log "Starting wg0 tunnel..."
@@ -216,7 +359,7 @@ Wants=network-online.target
 
 [Service]
 Type=simple
-ExecStart=/opt/paranoid-vpn/wg-watchdog.sh
+ExecStart=$INSTALL_DIR/wg-watchdog.sh
 Restart=always
 RestartSec=10
 
@@ -226,7 +369,7 @@ EOF
 
     systemctl daemon-reload
     systemctl enable wg-watchdog.service
-    systemctl start wg-watchdog.service
+    systemctl restart wg-watchdog.service
 
     log "Watchdog started."
 }
@@ -255,6 +398,11 @@ restore_config() {
     log "Restoring configuration..."
     # Find the latest backup.
     local latest_backup
+
+    if [ ! -d "$BACKUP_DIR" ]; then
+        error_exit "No backup directory found at $BACKUP_DIR."
+    fi
+
     latest_backup=$(find "$BACKUP_DIR" -mindepth 1 -maxdepth 1 -type d -printf '%f\n' | sort -r | head -1)
     if [ -z "$latest_backup" ]; then
         error_exit "No backups found to restore."
@@ -277,9 +425,12 @@ restore_config() {
     firewall-cmd --reload
 
     # Disable the watchdog.
-    systemctl stop wg-watchdog.service
-    systemctl disable wg-watchdog.service
+    systemctl stop wg-watchdog.service 2>/dev/null || true
+    systemctl disable wg-watchdog.service 2>/dev/null || true
     rm -f /etc/systemd/system/wg-watchdog.service
+    systemctl stop wg-startup.service 2>/dev/null || true
+    systemctl disable wg-startup.service 2>/dev/null || true
+    rm -f /etc/systemd/system/wg-startup.service
     systemctl daemon-reload
 
     # Re-enable IPv6.
@@ -301,16 +452,25 @@ show_status() {
     firewall-cmd --get-active-zones | grep -A 10 "$ZONE_NAME" || echo "Zone inactive"
     echo ""
     echo "Watchdog:"
-    systemctl status wg-watchdog.service --no-pager -l
+    systemctl status wg-watchdog.service --no-pager -l || true
 }
 
 # --- MAIN BLOCK ---
+if [ "$ACTION" = "help" ]; then
+    show_usage
+    exit 0
+fi
+
 check_root
 check_dependencies
 
 case $ACTION in
     setup)
+        resolve_wireguard_config
         backup_config
+        install_project_files
+        install_wireguard_config
+        install_startup_service
         setup_wireguard
         setup_routing
         setup_firewall
@@ -324,7 +484,7 @@ case $ACTION in
         show_status
         ;;
     *)
-        echo "Usage: $0 [--allow-ssh] [--restore] [--status]"
+        show_usage
         exit 1
         ;;
 esac

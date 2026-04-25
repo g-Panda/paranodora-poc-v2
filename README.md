@@ -24,52 +24,34 @@ Goal: full network isolation through a WireGuard tunnel (Proton VPN) with an aut
   - `wireguard-tools`
   - `firewalld`
   - `NetworkManager`
-  - `jq` (optional, for parsing)
 - Proton VPN configuration: a WireGuard `.conf` file.
 
 ## Installation
 
-### 1. Prepare the directory
+### One-command setup
+
+Clone or unpack the repository anywhere. Put your Proton VPN WireGuard config
+beside `paranoid-vpn.sh` and name it `wg0.conf`, then run the main script from
+the repository root:
 
 ```bash
-sudo mkdir -p /opt/paranoid-vpn
-cd /opt/paranoid-vpn
+sudo ./paranoid-vpn.sh
 ```
 
-### 2. Copy the files
+The script handles the preparation work:
 
-Copy these files into the directory, or download them from the repository:
-
-- `paranoid-vpn.sh`
-- `wg-watchdog.sh`
-- `wg-startup.service`
-- `README.md`
-
-### 3. Set permissions
-
-```bash
-sudo chmod +x paranoid-vpn.sh wg-watchdog.sh
-```
-
-### 4. Configure WireGuard
-
-Place your Proton VPN configuration file at `/etc/wireguard/wg0.conf`.
-
-```bash
-sudo nano /etc/wireguard/wg0.conf
-# Paste the contents of your .conf file
-sudo chmod 600 /etc/wireguard/wg0.conf
-```
+- Copies `paranoid-vpn.sh` and `wg-watchdog.sh` into `/opt/paranoid-vpn`.
+- Installs `wg0.conf` into `/etc/wireguard/wg0.conf` with mode `600`.
+- Writes and enables the `wg-startup.service` boot service.
+- Writes, enables, and starts the `wg-watchdog.service` kill switch.
+- Creates a backup before making network changes.
 
 Important: in the `[Peer]` section, make sure `AllowedIPs = 0.0.0.0/0, ::/0` is set.
 
-### 5. Register the autostart service
+If your WireGuard config is somewhere else, pass it explicitly:
 
 ```bash
-sudo nano /etc/systemd/system/wg-startup.service
-# Paste the contents of wg-startup.service
-sudo systemctl daemon-reload
-sudo systemctl enable wg-startup.service
+sudo ./paranoid-vpn.sh --wg-conf /path/to/proton.conf
 ```
 
 ## Usage
@@ -94,6 +76,7 @@ sudo ./paranoid-vpn.sh --allow-ssh
 ```
 
 This opens port 22 for SSH traffic according to the firewall configuration.
+The boot service will keep this setting when it is installed by that run.
 
 ### Check status
 
@@ -110,7 +93,8 @@ sudo ./paranoid-vpn.sh --restore
 sudo reboot
 ```
 
-This command restores the firewall and routing backup from the latest checkpoint.
+This command restores the firewall and routing backup from the latest checkpoint
+and removes the installed systemd services.
 
 ## Diagnostics
 

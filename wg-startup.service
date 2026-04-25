@@ -5,7 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=/opt/paranoid-vpn/paranoid-vpn.sh
+ExecStart=/opt/paranoid-vpn/paranoid-vpn.sh --wg-conf /etc/wireguard/wg0.conf
 RemainAfterExit=yes
 
 [Install]

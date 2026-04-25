@@ -14,8 +14,9 @@ log() {
 }
 
 check_tunnel() {
-    # Check whether the interface exists and is up.
-    if ! ip link show wg0 | grep -q "state UP"; then
+    # WireGuard interfaces commonly report state UNKNOWN, so existence plus a
+    # recent handshake is a better health signal than link state text.
+    if ! ip link show wg0 >/dev/null 2>&1; then
         return 1
     fi
 
@@ -35,30 +36,38 @@ trigger_killswitch() {
     firewall-cmd --zone="$ZONE_NAME" --set-target=DROP --permanent
     firewall-cmd --reload
 
-    # Remove the default route so nothing can leave.
-    ip route del default 2>/dev/null || true
+    # Remove all IPv4 default routes so nothing can leave.
+    while ip -4 route show default | grep -q .; do
+        ip -4 route del default 2>/dev/null || break
+    done
 
     # Send a notification (optional).
     # notify-send "Paranoid VPN" "Tunnel dropped! No internet access."
 }
 
-restore_network() {
-    log "Tunnel restored. Restoring network."
+enforce_tunnel_route() {
+    local default_routes
 
-    # Restore the default route.
-    ip route add default dev wg0 2>/dev/null || true
+    default_routes="$(ip -4 route show default || true)"
+    if [ -z "$default_routes" ]; then
+        log "Tunnel active. Restoring wg0 default route."
+        ip -4 route add default dev wg0 2>/dev/null || true
+        return
+    fi
 
-    # The firewall target is DROP with explicit exceptions in this setup.
-    # Nothing needs to change there; just make sure the route is present.
+    if printf '%s\n' "$default_routes" | grep -Evq '(^|[[:space:]])dev[[:space:]]+wg0($|[[:space:]])'; then
+        log "Tunnel active. Removing non-wg0 default routes."
+        while ip -4 route show default | grep -q .; do
+            ip -4 route del default 2>/dev/null || break
+        done
+        ip -4 route add default dev wg0 2>/dev/null || true
+    fi
 }
 
 # Main loop.
 while true; do
     if check_tunnel; then
-        # The tunnel is running. Check whether the default route still exists.
-        if ! ip route | grep -q "default.*wg0"; then
-            restore_network
-        fi
+        enforce_tunnel_route
     else
         # The tunnel is down.
         trigger_killswitch

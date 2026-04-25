@@ -82,6 +82,14 @@ error_exit() {
     exit 1
 }
 
+set_wg_default_route() {
+    while ip -4 route show default | grep -q .; do
+        ip -4 route del default 2>/dev/null || break
+    done
+
+    ip -4 route add default dev wg0
+}
+
 check_root() {
     if [[ $EUID -ne 0 ]]; then
         error_exit "This script must be run as root (sudo)."
@@ -89,7 +97,7 @@ check_root() {
 }
 
 check_dependencies() {
-    local deps=("firewall-cmd" "wg-quick" "wg" "ip" "systemctl" "sysctl" "awk" "grep" "install")
+    local deps=("firewall-cmd" "wg-quick" "wg" "ip" "nmcli" "systemctl" "sysctl" "awk" "grep" "install")
     local missing=()
 
     for dep in "${deps[@]}"; do
@@ -286,13 +294,26 @@ setup_routing() {
         fi
     fi
 
-    # Remove the default route through the physical interface, if it exists.
-    # This can briefly cut internet access until wg0 is ready, so it happens
-    # after wg0 has been started.
-    ip route del default 2>/dev/null || true
+    if [ -n "$gateway_dev" ]; then
+        if nmcli device modify "$gateway_dev" ipv4.never-default yes ipv6.never-default yes; then
+            log "Disabled default routes on physical interface: $gateway_dev"
+        else
+            log "Warning: Failed to disable default routes on physical interface: $gateway_dev"
+        fi
+    fi
 
-    # Add the default route through wg0.
-    ip route add default dev wg0
+    if [ -n "${gateway:-}" ] && [ -n "${gateway_dev:-}" ] && [ -n "${endpoint_host:-}" ]; then
+        if ip route replace "$endpoint_host" via "$gateway" dev "$gateway_dev" 2>/dev/null; then
+            log "Ensured route to WireGuard endpoint after NetworkManager reapply: $endpoint_host via $gateway ($gateway_dev)"
+        else
+            log "Warning: Failed to ensure route to WireGuard endpoint after NetworkManager reapply: $endpoint_host"
+        fi
+    fi
+
+    # Remove all existing IPv4 default routes before forcing wg0 as the only
+    # default path. This can briefly cut internet access until wg0 is ready, so
+    # it happens after wg0 has been started.
+    set_wg_default_route
 }
 
 setup_firewall() {
@@ -309,8 +330,12 @@ setup_firewall() {
     # Allow loopback traffic.
     firewall-cmd --zone="$ZONE_NAME" --add-rich-rule='rule family=ipv4 source address=127.0.0.0/8 accept' --permanent
 
-    # Allow DHCP traffic, which is required to obtain an IP address.
-    firewall-cmd --zone="$ZONE_NAME" --add-service=dhcp-client --permanent
+    # Allow DHCP client replies, which are required to keep an IP address.
+    if firewall-cmd --get-services | grep -qw "dhcp-client"; then
+        firewall-cmd --zone="$ZONE_NAME" --add-service=dhcp-client --permanent
+    else
+        firewall-cmd --zone="$ZONE_NAME" --add-port=68/udp --permanent
+    fi
 
     # Allow ESTABLISHED and RELATED traffic.
     firewall-cmd --zone="$ZONE_NAME" --add-icmp-block-inversion --permanent # Allows replies
@@ -382,6 +407,8 @@ validate_setup() {
         error_exit "wg0 tunnel is not running!"
     fi
 
+    set_wg_default_route
+
     # Check routing.
     if ! ip route show default | grep -q "dev wg0"; then
         error_exit "Default route does not point to wg0!"
@@ -408,6 +435,10 @@ restore_config() {
         error_exit "No backups found to restore."
     fi
 
+    # Stop WireGuard and remove stale tunnel routes before restoring services.
+    wg-quick down wg0 2>/dev/null || true
+    ip -4 route del default dev wg0 2>/dev/null || true
+
     # Restore firewall.
     rm -rf /etc/firewalld/zones/*
     if [ -d "$BACKUP_DIR/$latest_backup/zones" ]; then
@@ -416,8 +447,11 @@ restore_config() {
         log "Warning: Backup does not contain a zones directory; skipping Firewalld restore."
     fi
 
-    # Restore routing. The safest approach is to restart the network because
-    # the previous route state may vary.
+    # Undo runtime NetworkManager changes made during setup, then restart the
+    # network because the previous route state may vary.
+    for iface in $(nmcli -t -f DEVICE,TYPE device status | awk -F: '$2 == "ethernet" {print $1}'); do
+        nmcli device modify "$iface" ipv4.never-default no ipv6.never-default no 2>/dev/null || true
+    done
     systemctl restart NetworkManager
 
     # Remove the zone.

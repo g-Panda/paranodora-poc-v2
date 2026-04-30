@@ -10,10 +10,25 @@ set -euo pipefail # Stop on the first error and unset variables
 # --- CONFIGURATION ---
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 MODULE_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
-INSTALL_DIR="/opt/paranoid-vpn"
-BACKUP_DIR="/var/lib/paranoid-vpn/backups"
-LOG_FILE="/var/log/paranoid-vpn.log"
-SYSTEM_WG_CONF="/etc/wireguard/wg0.conf"
+PARANOID_VPN_TEST_ROOT="${PARANOID_VPN_TEST_ROOT:-}"
+
+system_path() {
+    local path="$1"
+
+    if [ -n "$PARANOID_VPN_TEST_ROOT" ]; then
+        printf '%s/%s\n' "${PARANOID_VPN_TEST_ROOT%/}" "${path#/}"
+    else
+        printf '%s\n' "$path"
+    fi
+}
+
+INSTALL_DIR="${PARANOID_VPN_INSTALL_DIR:-$(system_path /opt/paranoid-vpn)}"
+BACKUP_DIR="${PARANOID_VPN_BACKUP_DIR:-$(system_path /var/lib/paranoid-vpn/backups)}"
+LOG_FILE="${PARANOID_VPN_LOG_FILE:-$(system_path /var/log/paranoid-vpn.log)}"
+SYSTEM_WG_CONF="${PARANOID_VPN_SYSTEM_WG_CONF:-$(system_path /etc/wireguard/wg0.conf)}"
+SYSTEMD_DIR="${PARANOID_VPN_SYSTEMD_DIR:-$(system_path /etc/systemd/system)}"
+FIREWALLD_ZONES_DIR="${PARANOID_VPN_FIREWALLD_ZONES_DIR:-$(system_path /etc/firewalld/zones)}"
+NM_SYSTEM_CONNECTIONS_DIR="${PARANOID_VPN_NM_SYSTEM_CONNECTIONS_DIR:-$(system_path /etc/NetworkManager/system-connections)}"
 WG_CONF="$SCRIPT_DIR/wg0.conf"
 ZONE_NAME="wireguard-only"
 ALLOW_SSH=false
@@ -94,6 +109,10 @@ set_wg_default_route() {
 
 check_root() {
     if [[ $EUID -ne 0 ]]; then
+        if [ -n "$PARANOID_VPN_TEST_ROOT" ] && [ "${PARANOID_VPN_ALLOW_NON_ROOT_FOR_TESTS:-}" = "1" ]; then
+            return
+        fi
+
         error_exit "This script must be run as root (sudo)."
     fi
 }
@@ -192,7 +211,9 @@ install_startup_service() {
 
     log "Installing boot startup service..."
 
-    cat > /etc/systemd/system/wg-startup.service <<EOF
+    mkdir -p "$SYSTEMD_DIR"
+
+    cat > "$SYSTEMD_DIR/wg-startup.service" <<EOF
 [Unit]
 Description=Start Paranoid VPN on Boot
 After=network-online.target
@@ -222,10 +243,10 @@ backup_config() {
 
     # Backup firewall
     firewall-cmd --runtime-to-permanent 2>/dev/null || true
-    cp -r /etc/firewalld/zones "$BACKUP_DIR/$timestamp/" 2>/dev/null || true
+    cp -r "$FIREWALLD_ZONES_DIR" "$BACKUP_DIR/$timestamp/" 2>/dev/null || true
 
     # Backup NetworkManager
-    cp -r /etc/NetworkManager/system-connections/ "$BACKUP_DIR/$timestamp/" 2>/dev/null || true
+    cp -r "$NM_SYSTEM_CONNECTIONS_DIR" "$BACKUP_DIR/$timestamp/" 2>/dev/null || true
 
     # Backup routing
     ip route show > "$BACKUP_DIR/$timestamp/routes.txt"
@@ -371,9 +392,9 @@ setup_firewall() {
     firewall-cmd --zone="$ZONE_NAME" --remove-port=53/tcp --permanent 2>/dev/null || true
 
     # Apply the zone to all interfaces except loopback.
-    for iface in $(ip -o link show | awk -F': ' '{print $2}' | grep -v lo); do
+    while IFS= read -r iface; do
         firewall-cmd --zone="$ZONE_NAME" --change-interface="$iface" --permanent
-    done
+    done < <(ip -o link show | awk -F': ' '{split($2, parts, /[:@]/); if (parts[1] != "lo") print parts[1]}')
 
     # Save and reload.
     firewall-cmd --runtime-to-permanent
@@ -386,7 +407,9 @@ setup_watchdog() {
     log "Phase 4: Watchdog configuration..."
 
     # Create the service file.
-    cat > /etc/systemd/system/wg-watchdog.service <<EOF
+    mkdir -p "$SYSTEMD_DIR"
+
+    cat > "$SYSTEMD_DIR/wg-watchdog.service" <<EOF
 [Unit]
 Description=WireGuard Kill-Switch Watchdog
 After=network-online.target
@@ -450,9 +473,10 @@ restore_config() {
     ip -4 route del default dev wg0 2>/dev/null || true
 
     # Restore firewall.
-    rm -rf /etc/firewalld/zones/*
+    mkdir -p "$FIREWALLD_ZONES_DIR"
+    rm -rf "${FIREWALLD_ZONES_DIR:?}"/*
     if [ -d "$BACKUP_DIR/$latest_backup/zones" ]; then
-        cp -r "$BACKUP_DIR/$latest_backup/zones/." /etc/firewalld/zones/
+        cp -r "$BACKUP_DIR/$latest_backup/zones/." "$FIREWALLD_ZONES_DIR/"
     else
         log "Warning: Backup does not contain a zones directory; skipping Firewalld restore."
     fi
@@ -471,10 +495,10 @@ restore_config() {
     # Disable the watchdog.
     systemctl stop wg-watchdog.service 2>/dev/null || true
     systemctl disable wg-watchdog.service 2>/dev/null || true
-    rm -f /etc/systemd/system/wg-watchdog.service
+    rm -f "$SYSTEMD_DIR/wg-watchdog.service"
     systemctl stop wg-startup.service 2>/dev/null || true
     systemctl disable wg-startup.service 2>/dev/null || true
-    rm -f /etc/systemd/system/wg-startup.service
+    rm -f "$SYSTEMD_DIR/wg-startup.service"
     systemctl daemon-reload
 
     # Re-enable IPv6.

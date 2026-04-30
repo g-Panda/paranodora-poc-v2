@@ -3,7 +3,7 @@
 ## CI Unit Suite
 
 The fast CI suite validates the `paranoid-vpn` setup, restore, watchdog, and
-root wrapper behavior with mocked system commands. It does not require root,
+status behavior with mocked system commands. It does not require root,
 WireGuard, Firewalld, NetworkManager, libvirt, or a real VPN config.
 
 From the repository root:

@@ -30,18 +30,18 @@ Goal: full network isolation through a WireGuard tunnel (Proton VPN) with an aut
 
 ### One-command setup
 
-Clone or unpack the repository anywhere. The compatibility wrapper can still be
-used from the repository root. Put your Proton VPN WireGuard config beside the
-wrapper as `wg0.conf`, then run:
-
-```bash
-sudo ./paranoid-vpn.sh
-```
-
-The canonical module entrypoint also works directly:
+Clone or unpack the repository anywhere. Run the module entrypoint directly and
+pass your Proton VPN WireGuard config:
 
 ```bash
 sudo modules/paranoid-vpn/src/paranoid-vpn.sh --wg-conf /path/to/proton.conf
+```
+
+If you want the default no-flag command, put your untracked WireGuard config
+beside the module script as `modules/paranoid-vpn/src/wg0.conf`, then run:
+
+```bash
+sudo modules/paranoid-vpn/src/paranoid-vpn.sh
 ```
 
 The script handles the preparation work:
@@ -54,11 +54,10 @@ The script handles the preparation work:
 
 Important: in the `[Peer]` section, make sure `AllowedIPs = 0.0.0.0/0, ::/0` is set.
 
-If your WireGuard config is somewhere else, pass it explicitly from either
-entrypoint:
+If your WireGuard config is somewhere else, pass it explicitly:
 
 ```bash
-sudo ./paranoid-vpn.sh --wg-conf /path/to/proton.conf
+sudo modules/paranoid-vpn/src/paranoid-vpn.sh --wg-conf /path/to/proton.conf
 ```
 
 ## Usage
@@ -66,7 +65,7 @@ sudo ./paranoid-vpn.sh --wg-conf /path/to/proton.conf
 ### Default mode: full SSH lockdown
 
 ```bash
-sudo ./paranoid-vpn.sh
+sudo modules/paranoid-vpn/src/paranoid-vpn.sh
 ```
 
 After startup:
@@ -79,7 +78,7 @@ After startup:
 ### SSH access mode: recommended for servers
 
 ```bash
-sudo ./paranoid-vpn.sh --allow-ssh
+sudo modules/paranoid-vpn/src/paranoid-vpn.sh --allow-ssh
 ```
 
 This opens port 22 for SSH traffic according to the firewall configuration.
@@ -88,7 +87,7 @@ The boot service will keep this setting when it is installed by that run.
 ### Check status
 
 ```bash
-sudo ./paranoid-vpn.sh --status
+sudo modules/paranoid-vpn/src/paranoid-vpn.sh --status
 ```
 
 ### Restore configuration after a failure
@@ -96,7 +95,7 @@ sudo ./paranoid-vpn.sh --status
 If you lose system access or want to roll back the changes:
 
 ```bash
-sudo ./paranoid-vpn.sh --restore
+sudo modules/paranoid-vpn/src/paranoid-vpn.sh --restore
 sudo reboot
 ```
 
@@ -150,7 +149,7 @@ Fix:
 
 - Check logs with `journalctl -u wg-quick@wg0 -f`.
 - Check whether the configuration file is valid.
-- Run `sudo ./paranoid-vpn.sh --restore` and try again.
+- Run `sudo modules/paranoid-vpn/src/paranoid-vpn.sh --restore` and try again.
 
 ### Problem: "I lost SSH access"
 
@@ -159,8 +158,8 @@ Cause: port 22 was blocked.
 Fix:
 
 - Log in to the machine locally.
-- Run `sudo ./paranoid-vpn.sh --allow-ssh`.
-- Or restore the configuration with `sudo ./paranoid-vpn.sh --restore`.
+- Run `sudo modules/paranoid-vpn/src/paranoid-vpn.sh --allow-ssh`.
+- Or restore the configuration with `sudo modules/paranoid-vpn/src/paranoid-vpn.sh --restore`.
 
 ### Problem: "The script does not work after a system update"
 
@@ -169,7 +168,7 @@ Cause: an rpm-ostree update may have overwritten the system layer.
 Fix:
 
 - Make sure files in `/opt/paranoid-vpn/` and `/etc/wireguard/` are in the user-managed layer.
-- Run the script again with `sudo ./paranoid-vpn.sh`.
+- Run the script again with `sudo modules/paranoid-vpn/src/paranoid-vpn.sh`.
 - If that does not help, restart the system.
 
 ### Problem: "IPv6 does not work"

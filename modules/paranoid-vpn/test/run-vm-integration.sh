@@ -221,11 +221,15 @@ run_setup() {
     log_section "Run paranoid VPN setup"
 
     local allow_ssh_arg=""
+    local remote_vpn_script
+
+    remote_vpn_script="$(shell_quote "$REMOTE_WORKDIR/paranoid-vpn.sh")"
+
     if [ "$TEST_ALLOW_SSH" = "1" ]; then
         allow_ssh_arg=" --allow-ssh"
     fi
 
-    remote_check "setup completed on VM" "cd $(shell_quote "$REMOTE_WORKDIR") && sudo -n ./paranoid-vpn.sh --wg-conf $(shell_quote "$VM_WG_CONF")$allow_ssh_arg"
+    remote_check "setup completed on VM" "sudo -n $remote_vpn_script --wg-conf $(shell_quote "$VM_WG_CONF")$allow_ssh_arg"
 }
 
 verify_observability() {

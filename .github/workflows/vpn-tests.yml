@@ -29,8 +29,6 @@ jobs:
       - name: Run ShellCheck
         run: |
           shellcheck \
-            paranoid-vpn.sh \
-            wg-watchdog.sh \
             modules/paranoid-vpn/src/paranoid-vpn.sh \
             modules/paranoid-vpn/src/wg-watchdog.sh \
             modules/paranoid-vpn/test/run-unit.sh

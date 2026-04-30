@@ -58,7 +58,7 @@ ACTION=${ACTION:-"setup"}
 # --- HELPER FUNCTIONS ---
 show_usage() {
     cat <<EOF
-Usage: sudo ./paranoid-vpn.sh [options]
+Usage: sudo modules/paranoid-vpn/src/paranoid-vpn.sh [options]
 
 Options:
   --allow-ssh          Keep SSH open in the lockdown firewall zone.
@@ -68,8 +68,7 @@ Options:
   -h, --help          Show this help.
 
 Default setup expects wg0.conf next to this script and installs everything
-needed for boot into /opt/paranoid-vpn and /etc/systemd/system. The repository
-root wrapper also supports a root-level wg0.conf for compatibility.
+needed for boot into /opt/paranoid-vpn and /etc/systemd/system.
 EOF
 }
 
@@ -145,7 +144,7 @@ resolve_wireguard_config() {
         return
     fi
 
-    error_exit "WireGuard config not found: $WG_CONF. Put wg0.conf next to paranoid-vpn.sh or pass --wg-conf PATH."
+    error_exit "WireGuard config not found: $WG_CONF. Put wg0.conf next to the module script or pass --wg-conf PATH."
 }
 
 install_project_files() {

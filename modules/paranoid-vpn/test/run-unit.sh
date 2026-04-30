@@ -3,7 +3,6 @@ set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
 MODULE_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
-REPO_ROOT="$(cd -- "$MODULE_DIR/../.." && pwd -P)"
 VPN_SCRIPT="$MODULE_DIR/src/paranoid-vpn.sh"
 WATCHDOG_SCRIPT="$MODULE_DIR/src/wg-watchdog.sh"
 
@@ -260,7 +259,7 @@ test_help_does_not_need_root_or_dependencies() {
 
     env -i PATH="/usr/bin:/bin" bash "$VPN_SCRIPT" --help > "$output_file"
 
-    assert_contains "$output_file" "Usage: sudo ./paranoid-vpn.sh [options]"
+    assert_contains "$output_file" "Usage: sudo modules/paranoid-vpn/src/paranoid-vpn.sh [options]"
     assert_contains "$output_file" "--wg-conf PATH"
 }
 
@@ -377,38 +376,12 @@ test_watchdog_triggers_killswitch_without_handshake() {
     assert_contains "$case_dir/watchdog.log" "KILL SWITCH ACTIVATED"
 }
 
-test_root_wrapper_prefers_root_level_wg_conf() {
-    local case_dir
-    local fake_module
-    local output_file
-
-    case_dir="$(make_case_dir wrapper)"
-    fake_module="$case_dir/repo/modules/paranoid-vpn/src/paranoid-vpn.sh"
-    output_file="$case_dir/output.txt"
-
-    mkdir -p "$(dirname "$fake_module")"
-    cp "$REPO_ROOT/paranoid-vpn.sh" "$case_dir/repo/paranoid-vpn.sh"
-    printf 'fixture\n' > "$case_dir/repo/wg0.conf"
-    cat > "$fake_module" <<'EOF'
-#!/usr/bin/env bash
-printf '%s\n' "$@"
-EOF
-    chmod 755 "$case_dir/repo/paranoid-vpn.sh" "$fake_module"
-
-    (cd "$case_dir/repo" && bash ./paranoid-vpn.sh --status) > "$output_file"
-
-    assert_contains "$output_file" "--wg-conf"
-    assert_contains "$output_file" "$case_dir/repo/wg0.conf"
-    assert_contains "$output_file" "--status"
-}
-
 run_test test_help_does_not_need_root_or_dependencies
 run_test test_setup_installs_files_and_locks_down_firewall
 run_test test_setup_can_keep_ssh_open_when_requested
 run_test test_restore_uses_test_root_paths
 run_test test_watchdog_accepts_active_handshake
 run_test test_watchdog_triggers_killswitch_without_handshake
-run_test test_root_wrapper_prefers_root_level_wg_conf
 
 printf '\n%d passed, %d failed\n' "$PASS_COUNT" "$FAIL_COUNT"
 

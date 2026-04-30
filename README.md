@@ -13,18 +13,18 @@ level source or test trees.
 - [fido-luks](modules/fido-luks/README.md): scaffold for adding FIDO2-backed
   LUKS unlock beside an existing password.
 
-## Compatibility Commands
+## Module Commands
 
-The current VPN module can still be run from the repository root:
-
-```bash
-sudo ./paranoid-vpn.sh [options]
-```
-
-The canonical module entrypoint is:
+The VPN setup entrypoint lives inside the module:
 
 ```bash
 sudo modules/paranoid-vpn/src/paranoid-vpn.sh [options]
+```
+
+For setup, pass a WireGuard config explicitly:
+
+```bash
+sudo modules/paranoid-vpn/src/paranoid-vpn.sh --wg-conf /path/to/proton.conf
 ```
 
 No Secure Boot or FIDO/LUKS mutation commands exist yet.

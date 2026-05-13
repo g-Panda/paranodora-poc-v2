@@ -10,6 +10,8 @@
 set -Eeuo pipefail
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd -P)"
+MODULE_DIR="$(cd -- "$SCRIPT_DIR/.." && pwd -P)"
+MODULE_TOOLS_DIR="$MODULE_DIR/tools"
 
 # shellcheck source=modules/paranoid-vpn/test/lib/logging.sh
 source "$SCRIPT_DIR/lib/logging.sh"
@@ -602,10 +604,14 @@ set -Eeuo pipefail
 if command -v cloud-init >/dev/null 2>&1; then
     sudo -n cloud-init status --wait >/dev/null || true
 fi
-sudo -n dnf -y install firewalld wireguard-tools NetworkManager curl bind-utils iproute iputils procps-ng sudo
-sudo -n systemctl enable --now NetworkManager.service
-sudo -n systemctl enable --now firewalld.service
 sudo -n install -d -m 700 /etc/wireguard
+'
+
+    remote_scp_to "$MODULE_TOOLS_DIR/install-deps.sh" "/tmp/paranoid-vpn-install-deps.sh"
+    remote_run '
+set -Eeuo pipefail
+sudo -n bash /tmp/paranoid-vpn-install-deps.sh
+rm -f /tmp/paranoid-vpn-install-deps.sh
 '
 
     remote_scp_to "$TEST_WG_CONF" "/tmp/paranoid-vpn-wg0.conf"

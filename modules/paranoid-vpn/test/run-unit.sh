@@ -294,6 +294,9 @@ test_setup_installs_files_and_locks_down_firewall() {
     assert_contains "$log" "firewall-cmd --zone=wireguard-only --set-target=DROP --permanent"
     assert_contains "$log" "firewall-cmd --zone=wireguard-only --change-interface=eth0 --permanent"
     assert_contains "$log" "firewall-cmd --zone=wireguard-only --change-interface=wg0 --permanent"
+    assert_contains "$log" "firewall-cmd --reload"
+    assert_contains "$log" "firewall-cmd --zone=wireguard-only --change-interface=eth0"
+    assert_contains "$log" "firewall-cmd --zone=wireguard-only --change-interface=wg0"
     assert_not_contains "$log" "firewall-cmd --zone=wireguard-only --add-service=ssh --permanent"
 }
 

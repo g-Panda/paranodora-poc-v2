@@ -395,9 +395,11 @@ setup_firewall() {
         firewall-cmd --zone="$ZONE_NAME" --change-interface="$iface" --permanent
     done < <(ip -o link show | awk -F': ' '{split($2, parts, /[:@]/); if (parts[1] != "lo") print parts[1]}')
 
-    # Save and reload.
-    firewall-cmd --runtime-to-permanent
+    # Load permanent zone changes, then apply runtime interface assignments.
     firewall-cmd --reload
+    while IFS= read -r iface; do
+        firewall-cmd --zone="$ZONE_NAME" --change-interface="$iface"
+    done < <(ip -o link show | awk -F': ' '{split($2, parts, /[:@]/); if (parts[1] != "lo") print parts[1]}')
 
     log "Firewall configured."
 }

@@ -1,3 +1,10 @@
 vm-integration-report-*.md
 vm-integration-report-*.md.tmp
 wg0.conf
+*.iso
+*.img
+*.qcow2
+*.rpm
+modules/paranoid-vpn/offline-bundles/
+modules/paranoid-vpn/test/artifacts/
+modules/paranoid-vpn/test/vm-cache/
